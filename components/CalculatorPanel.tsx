@@ -1,11 +1,22 @@
 'use client'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { CalculatorState, CalculationResult, Currency, VehicleCategory } from '@/lib/types'
 import ResultField from './ResultField'
 import FuelTypeSelector from './FuelTypeSelector'
 import LocalCostAccordion from './LocalCostAccordion'
 import SettlementBox from './SettlementBox'
 import { formatLKRFull, formatPercent } from '@/lib/formatters'
+
+// Free exchange rate API (no key needed)
+async function fetchRate(currency: Currency): Promise<number | null> {
+  try {
+    const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${currency}`)
+    const data = await res.json()
+    return data?.rates?.LKR ?? null
+  } catch {
+    return null
+  }
+}
 
 interface CalculatorPanelProps {
   state: CalculatorState
@@ -28,6 +39,23 @@ const labelClass = 'block text-xs font-semibold text-gray-500 mb-1 uppercase tra
 
 export default function CalculatorPanel({ state, onChange, result }: CalculatorPanelProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [rateLoading, setRateLoading] = useState(false)
+  const [rateMsg, setRateMsg] = useState<string | null>(null)
+
+  const handleFetchRate = useCallback(async () => {
+    setRateLoading(true)
+    setRateMsg(null)
+    const rate = await fetchRate(state.currency)
+    setRateLoading(false)
+    if (rate) {
+      onChange({ exchangeRate: Math.round(rate * 100) / 100 })
+      setRateMsg(`✓ Updated: 1 ${state.currency} = LKR ${(Math.round(rate * 100) / 100).toLocaleString()}`)
+      setTimeout(() => setRateMsg(null), 4000)
+    } else {
+      setRateMsg('⚠ Could not fetch rate. Check connection.')
+      setTimeout(() => setRateMsg(null), 3000)
+    }
+  }, [state.currency, onChange])
 
   const salePrice = state.mode === 'actual' ? state.actualSellingPrice : state.expectedSellingPrice
 
@@ -86,14 +114,30 @@ export default function CalculatorPanel({ state, onChange, result }: CalculatorP
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
             <label className={labelClass}>Exchange Rate (LKR)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={state.exchangeRate || ''}
-              onChange={(e) => onChange({ exchangeRate: parseFloat(e.target.value) || 0 })}
-              className={inputClass}
-            />
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={state.exchangeRate || ''}
+                onChange={(e) => onChange({ exchangeRate: parseFloat(e.target.value) || 0 })}
+                className={inputClass}
+              />
+              <button
+                type="button"
+                onClick={handleFetchRate}
+                disabled={rateLoading}
+                title="Fetch today's live rate"
+                className="shrink-0 bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-700 rounded-lg px-2 text-lg transition-colors disabled:opacity-50 min-h-[44px]"
+              >
+                {rateLoading ? '⏳' : '🔄'}
+              </button>
+            </div>
+            {rateMsg && (
+              <p className={`text-xs mt-1 font-medium ${rateMsg.startsWith('✓') ? 'text-green-700' : 'text-red-600'}`}>
+                {rateMsg}
+              </p>
+            )}
           </div>
           <div>
             <label className={labelClass}>Manufacture Year</label>
